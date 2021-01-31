@@ -12,7 +12,8 @@ from sqlalchemy import create_engine, Column, Integer, DateTime, String, MetaDat
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from config.config import DBConfig, JQ_SCHEMA_NAME
+from config.config import DBConfig
+from db_operate.name_space import JQNameSpace
 
 engine = create_engine(DBConfig.uri,
                        echo=True,
@@ -21,7 +22,7 @@ engine = create_engine(DBConfig.uri,
                        pool_recycle=DBConfig.pool_recycle
                        )
 
-jq_metadata = MetaData(schema=JQ_SCHEMA_NAME)
+jq_metadata = MetaData(schema=JQNameSpace.schema)
 JQ_Session = sessionmaker(bind=engine)
 JQ_Base = declarative_base(engine, metadata=jq_metadata, name="JQ_Base")
 

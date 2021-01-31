@@ -11,8 +11,9 @@ from datetime import datetime
 
 import jqdatasdk as jqd
 
-from config.config import JQ_USER, JQ_PASSWD, JQ_SCHEMA_NAME
+from config.config import JQ_USER, JQ_PASSWD
 from db_operate.db_sqlalchemy.jq_sqlalchemy import JQ_Session, Security
+from db_operate.name_space import JQNameSpace
 
 from db_operate.utils.time import time_cost
 
@@ -28,7 +29,7 @@ jqd.auth(JQ_USER, JQ_PASSWD)
 
 @time_cost
 def securities():
-    table = "{schema_name}.securities".format(schema_name=JQ_SCHEMA_NAME)
+    table = "{schema_name}.securities".format(schema_name=JQNameSpace.schema)
     conflict_cols = ['code']
     update_cols = ['display_name', 'name', 'start_date', 'end_date', 'type', 'update_at']
 

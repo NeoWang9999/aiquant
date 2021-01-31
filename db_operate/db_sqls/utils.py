@@ -34,10 +34,12 @@ def insert_on_conflict_template(table: str, cols: list, vals: list, conflict_col
     )
     return command
 
-def pg_execute(command: str):
+
+def pg_execute(command: str, returning: bool = False):
     """
     执行 postgresql 数据库命令
     Args:
+        returning: 是否返回
         command: SQL 命令
 
     Returns:
@@ -45,20 +47,25 @@ def pg_execute(command: str):
     """
 
     conn = psycopg2.connect(host=DBConfig.host,
-                             port=DBConfig.port,
-                             dbname=DBConfig.dbname,
-                             user=DBConfig.user,
-                             password=DBConfig.password)
+                            port=DBConfig.port,
+                            dbname=DBConfig.dbname,
+                            user=DBConfig.user,
+                            password=DBConfig.password)
+    return_data = None
     try:
         command = sql.SQL(command)
         with conn:
-            cur = conn.cursor()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             with cur:
                 cur.execute(command)
+                if returning:
+                    return_data = cur.fetchall()
     except Exception as e:
         raise e
     finally:
         conn.close()
+    return return_data
+
 
 def insert_template(table: str, cols: list, vals: list):
     val_holders = ', '.join(["%s" for _ in range(len(vals))])
@@ -110,6 +117,7 @@ def pg_insert(table: str, cols: list, vals: list):
 
     return id_
 
+
 def pg_insert_on_conflict(table: str, cols: list, vals: list, conflict_cols: list, update_cols: list):
     """
 
@@ -145,6 +153,7 @@ def pg_insert_on_conflict(table: str, cols: list, vals: list, conflict_cols: lis
 
     return id_
 
+
 def insert_on_conflict_batch_template(table: str, cols: list, conflict_cols: list, update_cols: list):
     val_holders = ', '.join(["%s" for _ in range(len(cols))])
 
@@ -170,7 +179,7 @@ def pg_insert_on_conflict_batch(table: str, cols: list, lines: list, conflict_co
     Args:
         table: 表名
         cols: [k1, k2, ...]
-        lines: [{k1:v1, k2:v2 ...}, ...]
+        lines: [(v1, v2, ...), ...]
         conflict_cols: 互斥字段
         update_cols: 更新字段
 
@@ -198,7 +207,6 @@ def pg_insert_on_conflict_batch(table: str, cols: list, lines: list, conflict_co
 
 
 def insert_batch_template(table, cols):
-
     command = sql.SQL("""
         INSERT INTO {table} ({cols})
         VALUES %s;
@@ -210,6 +218,7 @@ def insert_batch_template(table, cols):
     )
     template = "(" + ','.join(["%({})s".format(c) for c in cols]) + ")"
     return command, template
+
 
 def pg_insert_batch(table: str, cols: list, lines: list):
     """
@@ -242,7 +251,7 @@ def pg_insert_batch(table: str, cols: list, lines: list):
         conn.close()
 
 
-def kg_fetchall(table: str, fields: list):
+def pg_fetchall(table: str, fields: list):
     """
 
     Args:
@@ -255,11 +264,11 @@ def kg_fetchall(table: str, fields: list):
     command = sql.SQL("""
         select {fields} from {table};
         """).format(
-            fields=sql.SQL(',').join(
-                [sql.SQL(c) for c in fields]
-            ),
-            table=sql.SQL(table)
-        )
+        fields=sql.SQL(',').join(
+            [sql.SQL(c) for c in fields]
+        ),
+        table=sql.SQL(table)
+    )
 
     conn = psycopg2.connect(host=DBConfig.host,
                             port=DBConfig.port,

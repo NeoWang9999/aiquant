@@ -9,17 +9,23 @@ from datetime import datetime, timedelta
 
 import tushare as ts
 
-from config.config import TS_TOKEN, TS_SCHEMA_NAME
-from db_operate.sqls.utils import pg_insert_on_conflict_batch
+from config.config import TS_TOKEN
+from db_operate.db_sqls.utils import pg_insert_on_conflict_batch
+
+from db_operate.name_space import TSNameSpace
+
+
+
 
 # 初始化全局变量
+
 TODAY = datetime.now().strftime("%Y%m%d")
 ZERO_DATE = "19000101"
 pro = ts.pro_api(token=TS_TOKEN)
 
 
 def trade_cal():
-    table = "{schema_name}.trade_cal".format(schema_name=TS_SCHEMA_NAME)
+    table = "{schema_name}.trade_cal".format(schema_name=TSNameSpace.schema)
     fields = ["cal_date", 'exchange', 'is_open']
     conflict_cols = ["cal_date"]
     update_cols = ['exchange', 'is_open']
@@ -33,7 +39,7 @@ def trade_cal():
 
 
 def index_basic():
-    table = "{schema_name}.index_basic".format(schema_name=TS_SCHEMA_NAME)
+    table = "{schema_name}.index_basic".format(schema_name=TSNameSpace.schema)
     fields = ['ts_code', 'name', 'fullname', 'market', 'publisher', 'index_type', 'category', 'base_date', 'base_point',
               'list_date', 'weight_rule', 'desc', 'exp_date']
     conflict_cols = ["ts_code"]
@@ -50,7 +56,7 @@ def index_basic():
 
 
 def stock_basic():
-    table = "{schema_name}.stock_basic".format(schema_name=TS_SCHEMA_NAME)
+    table = "{schema_name}.stock_basic".format(schema_name=TSNameSpace.schema)
     fields = ['ts_code', 'symbol', 'name', 'area', 'industry', 'fullname', 'enname', 'market', 'exchange', 'curr_type',
               'list_status', 'list_date', 'delist_date', 'is_hs']
     conflict_cols = ["ts_code"]
@@ -66,7 +72,7 @@ def stock_basic():
 
 
 def moneyflow_hsgt():
-    table = "{schema_name}.moneyflow_hsgt".format(schema_name=TS_SCHEMA_NAME)
+    table = "{schema_name}.moneyflow_hsgt".format(schema_name=TSNameSpace.schema)
     fields = ['trade_date', 'ggt_ss', 'ggt_sz', 'hgt', 'sgt', 'north_money', 'south_money']
     conflict_cols = ['trade_date']
     update_cols = ['ggt_ss', 'ggt_sz', 'hgt', 'sgt', 'north_money', 'south_money']

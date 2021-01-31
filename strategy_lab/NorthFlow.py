@@ -8,7 +8,7 @@
 import tushare as ts
 
 from config.config import TS_TOKEN
-from db_operate.sqls.utils import kg_fetchall
+from db_operate.sqls.utils import pg_fetchall
 
 
 def north_flow_avg_last_252(start_date, end_date):
@@ -27,5 +27,5 @@ def north_flow_avg_last_252(start_date, end_date):
 
 
 if __name__ == '__main__':
-    r = kg_fetchall("aiquant.moneyflow_hsgt", "*")
+    r = pg_fetchall("aiquant.moneyflow_hsgt", "*")
     print(r)
