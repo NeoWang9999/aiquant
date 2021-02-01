@@ -10,6 +10,7 @@ class JQNameSpace:
     schema = "jq_data"
     securities = "securities"
     index_stocks = "index_stocks"
+    index_daily = "index_daily"
 
     @staticmethod
     def full_table_name(table_name):

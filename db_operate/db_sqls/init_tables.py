@@ -20,7 +20,8 @@ def ts_init():
 def jq_init():
     # pg_execute(JQTableCreateSQL.schema)
     # pg_execute(JQTableCreateSQL.securities)
-    pg_execute(JQTableCreateSQL.index_stocks)
+    # pg_execute(JQTableCreateSQL.index_stocks)
+    pg_execute(JQTableCreateSQL.index_daily)
 
 
 
