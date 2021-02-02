@@ -1,5 +1,8 @@
+
+# 数据库相关
 pandas==1.2.1
 psycopg2-binary==2.8.6
 tushare==1.2.62
-jqdatasdk
 SQLAlchemy==1.3.22
+jqdatasdk
+akshare

@@ -97,6 +97,7 @@ def index_stocks():
     logger.info("index_stocks 完成更新，获取数据：{}".format(len(lines)))
 
 
+@time_cost(logger.info)
 def index_daily():
     logger.info("开始获取 index_daily 数据...")
     cols = ['code', 'date', 'open', 'close', 'low', 'high', 'volume', 'money', 'factor', 'high_limit', 'low_limit',
@@ -139,7 +140,31 @@ def index_daily():
     logger.info("index_daily 完成更新，获取数据：{}".format(total_lines_count))
 
 
+@time_cost(logger.info)
+def moneyflow_hsgt():
+    logger.info("开始获取 moneyflow_hsgt 数据...")
+    cols = ["date", "link_id", "link_name", "currency_id", "currency_name", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance", "net_buy"]
+    conflict_cols = ["date", "link_id"]
+    update_cols = ["link_name", "currency_id", "currency_name", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance", "net_buy"]
+
+    q = jqd.query(jqd.finance.STK_ML_QUOTA)
+    df = jqd.finance.run_query(q)
+    df.dropna(how="all", inplace=True)
+    df.rename(columns={"day": "date"}, inplace=True)
+    df["net_buy"] = df.apply(lambda x: x["buy_amount"] - x["sell_amount"], axis=1)
+    df = df[cols]
+
+    lines = df.to_records(index=False).tolist()
+
+    logger.info("[开始更新] moneyflow_hsgt，共计 {} 条 ...".format(len(lines)))
+    pg_insert_on_conflict_batch(table=JQNameSpace.full_table_name("moneyflow_hsgt"),
+                                cols=cols, lines=lines, conflict_cols=conflict_cols, update_cols=update_cols)
+
+    logger.info("[完成更新] moneyflow_hsgt，共计 {} 条 ...".format(len(lines)))
+
+
 if __name__ == '__main__':
     # securities()
     # index_stocks()
-    index_daily()
+    # index_daily()
+    moneyflow_hsgt()
