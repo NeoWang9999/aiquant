@@ -7,9 +7,11 @@
 @desc: 数据详情参考 https://www.joinquant.com/help/api/help#JQData
 """
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import jqdatasdk as jqd
+from jqdatasdk import finance, query
+from sqlalchemy import desc
 
 from config.config import JQ_USER, JQ_PASSWD
 from db_operate.db_logger.logger import logger
@@ -143,24 +145,56 @@ def index_daily():
 @time_cost(logger.info)
 def moneyflow_hsgt():
     logger.info("开始获取 moneyflow_hsgt 数据...")
-    cols = ["date", "link_id", "link_name", "currency_id", "currency_name", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance", "net_buy"]
+    cols = ["date", "link_id", "link_name", "currency_id", "currency_name", "net_buy", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance"]
     conflict_cols = ["date", "link_id"]
-    update_cols = ["link_name", "currency_id", "currency_name", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance", "net_buy"]
+    update_cols = ["link_name", "currency_id", "currency_name", "net_buy", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance"]
 
-    q = jqd.query(jqd.finance.STK_ML_QUOTA)
-    df = jqd.finance.run_query(q)
-    df.dropna(how="all", inplace=True)
-    df.rename(columns={"day": "date"}, inplace=True)
-    df["net_buy"] = df.apply(lambda x: x["buy_amount"] - x["sell_amount"], axis=1)
-    df = df[cols]
+    # 一次获取 2000 条，太多返回结果会乱
+    batch_size = 2000
+    q = jqd.query(finance.STK_ML_QUOTA).filter(finance.STK_ML_QUOTA.day < TODAY).order_by(desc(finance.STK_ML_QUOTA.day)).limit(batch_size)
+    df = finance.run_query(q)
+    while not df.empty:
+        df.dropna(how="all", inplace=True)
+        df.rename(columns={"day": "date"}, inplace=True)
+        df["net_buy"] = df.apply(lambda x: x["buy_amount"] - x["sell_amount"], axis=1)
+        df = df[cols]
 
-    lines = df.to_records(index=False).tolist()
+        date_list = sorted(df["date"].tolist())
+        oldest = date_list[0]
+        latest = date_list[-1]
+        # 计算北向资金（沪股通 + 深股通）
+        north_df = df.loc[(df["link_id"] == 310001) | (df["link_id"] == 310002)].groupby(by="date").sum()
+        north_df.reset_index(inplace=True)
+        north_df.rename(columns={"index": "date"}, inplace=True)
+        north_df["link_id"] = 310005
+        north_df["link_name"] = "北向资金"
+        north_df["currency_id"] = 110001
+        north_df["currency_name"] = "人民币"
+        north_df["quota"] = None
+        north_df["quota_balance"] = None
+        df = df.append(north_df, ignore_index=True)
 
-    logger.info("[开始更新] moneyflow_hsgt，共计 {} 条 ...".format(len(lines)))
-    pg_insert_on_conflict_batch(table=JQNameSpace.full_table_name("moneyflow_hsgt"),
-                                cols=cols, lines=lines, conflict_cols=conflict_cols, update_cols=update_cols)
+        # 计算南向资金（港股通(沪) + 港股通(深)）
+        south_df = df.loc[(df["link_id"] == 310003) | (df["link_id"] == 310004)].groupby(by="date").sum()
+        south_df.reset_index(inplace=True)
+        south_df.rename(columns={"index": "date"}, inplace=True)
+        south_df["link_id"] = 310006
+        south_df["link_name"] = "南向资金"
+        south_df["currency_id"] = 110003
+        south_df["currency_name"] = "港元"
+        south_df["quota"] = None
+        south_df["quota_balance"] = None
+        df = df.append(south_df, ignore_index=True)
 
-    logger.info("[完成更新] moneyflow_hsgt，共计 {} 条 ...".format(len(lines)))
+        lines = df.to_records(index=False).tolist()
+
+        logger.info("[开始更新] moneyflow_hsgt，{} 到 {}，共计 {} 条 ...".format(oldest, latest, len(lines)))
+        pg_insert_on_conflict_batch(table=JQNameSpace.full_table_name("moneyflow_hsgt"),
+                                    cols=cols, lines=lines, conflict_cols=conflict_cols, update_cols=update_cols)
+        logger.info("[完成更新] moneyflow_hsgt，{} 到 {}，共计 {} 条 ...".format(oldest, latest, len(lines)))
+
+        q = jqd.query(finance.STK_ML_QUOTA).filter(finance.STK_ML_QUOTA.day < oldest).order_by(desc(finance.STK_ML_QUOTA.day)).limit(batch_size)
+        df = finance.run_query(q)
 
 
 if __name__ == '__main__':

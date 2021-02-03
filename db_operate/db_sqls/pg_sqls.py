@@ -252,6 +252,7 @@ class JQTableCreateSQL:
             link_name varchar(32),
             currency_id int,
             currency_name varchar(16),
+            net_buy numeric(20, 4),
             buy_amount numeric(20, 4),
             buy_volume numeric(20, 4),
             sell_amount numeric(20, 4),
@@ -262,7 +263,6 @@ class JQTableCreateSQL:
             quota_balance numeric(20, 4),
             quota_daily numeric(20, 4),
             quota_daily_balance numeric(20, 4),
-            net_buy numeric(20, 4),
             created_at timestamp not null default now(),
             updated_at timestamp not null default now(),
             deleted_at timestamp default null,
@@ -277,6 +277,8 @@ class JQTableCreateSQL:
             310002	深股通
             310003	港股通（沪）
             310004	港股通（深）
+            310005	北向资金
+            310006	南向资金
         ';
         comment on column {schema_name}.{table_name}.link_name is '市场通名称。包括以下四个名称： 沪股通，深股通，港股通(沪）,港股通(深）;其中沪股通和深股通属于北向资金，港股通（沪）和港股通（深）属于南向资金。';
         comment on column {schema_name}.{table_name}.currency_id is '货币编码
@@ -285,6 +287,7 @@ class JQTableCreateSQL:
             110003	港元
         ';
         comment on column {schema_name}.{table_name}.currency_name is '货币名称';
+        comment on column {schema_name}.{table_name}.net_buy is '净流入=买入额-卖出额。单位：亿';
         comment on column {schema_name}.{table_name}.buy_amount is '买入额。单位：亿';
         comment on column {schema_name}.{table_name}.buy_volume is '买入数';
         comment on column {schema_name}.{table_name}.sell_amount is '卖出额。单位：亿';
@@ -295,7 +298,6 @@ class JQTableCreateSQL:
         comment on column {schema_name}.{table_name}.quota_balance is '总额度余额';
         comment on column {schema_name}.{table_name}.quota_daily is '每日额度';
         comment on column {schema_name}.{table_name}.quota_daily_balance is '每日额度余额。单位：亿';
-        comment on column {schema_name}.{table_name}.net_buy is '净流入=买入额-卖出额。单位：亿';
 
     """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.moneyflow_hsgt)
 
