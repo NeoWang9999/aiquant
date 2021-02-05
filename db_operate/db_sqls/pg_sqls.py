@@ -253,6 +253,7 @@ class JQTableCreateSQL:
             currency_id int,
             currency_name varchar(16),
             net_buy numeric(20, 4),
+            net_flow numeric(20, 4),
             buy_amount numeric(20, 4),
             buy_volume numeric(20, 4),
             sell_amount numeric(20, 4),
@@ -287,7 +288,8 @@ class JQTableCreateSQL:
             110003	港元
         ';
         comment on column {schema_name}.{table_name}.currency_name is '货币名称';
-        comment on column {schema_name}.{table_name}.net_buy is '净流入=买入额-卖出额。单位：亿';
+        comment on column {schema_name}.{table_name}.net_buy is '净买入=买入额-卖出额。单位：亿';
+        comment on column {schema_name}.{table_name}.net_flow is '净流入=每日额度-每日额度余额。单位：亿';
         comment on column {schema_name}.{table_name}.buy_amount is '买入额。单位：亿';
         comment on column {schema_name}.{table_name}.buy_volume is '买入数';
         comment on column {schema_name}.{table_name}.sell_amount is '卖出额。单位：亿';
@@ -303,7 +305,7 @@ class JQTableCreateSQL:
 
 
 class JQQuerySQL:
-    securities_index = """
+    securities__w_type = """
         SELECT 
             *
         FROM
@@ -314,7 +316,7 @@ class JQQuerySQL:
     """.format(table_name=JQNameSpace.full_table_name("securities"))
 
 
-    index_daily_code = """
+    index_daily__i_code = """
         SELECT 
             *
         FROM
@@ -324,6 +326,37 @@ class JQQuerySQL:
         ;
     """.format(table_name=JQNameSpace.full_table_name("index_daily"))
 
+    index_daily__i_code__r_date__close = """
+        SELECT 
+            date, close
+        FROM
+            {table_name}
+        where
+            code = '{{code}}'
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("index_daily"))
+
+
+    moneyflow_hsgt__i_link_id = """
+        SELECT 
+            *
+        FROM
+            {table_name}
+        where
+            link_id = '{{link_id}}'
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("moneyflow_hsgt"))
+
+
+    moneyflow_hsgt__i_link_id__r_date__net_buy__net_flow = """
+        SELECT 
+            date, net_buy, net_flow
+        FROM
+            {table_name}
+        where
+            link_id = '{{link_id}}'
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("moneyflow_hsgt"))
 
 
 class AKTableCreateSQL:

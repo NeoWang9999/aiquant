@@ -70,7 +70,7 @@ def index_stocks():
             code in {tar_codes}
         ;
     """
-    db_return = pg_execute(command=JQQuerySQL.securities_index, returning=True)
+    db_return = pg_execute(command=JQQuerySQL.securities__w_type, returning=True)
 
     lines = []
     for index_item in db_return:
@@ -110,10 +110,10 @@ def index_daily():
     fields = update_cols
 
     total_lines_count = 0
-    s_return = pg_execute(command=JQQuerySQL.securities_index, returning=True)
+    s_return = pg_execute(command=JQQuerySQL.securities__w_type, returning=True)
     for index_item in s_return:
         # 初始化模式，如果库里有则跳过，不更新
-        id_return = pg_execute(command=JQQuerySQL.index_daily_code.format(code=index_item["code"]), returning=True)
+        id_return = pg_execute(command=JQQuerySQL.index_daily__i_code.format(code=index_item["code"]), returning=True)
         if id_return:
             logger.info("[已存在] {} 的行情 ...".format(index_item["code"]))
             continue
@@ -145,9 +145,9 @@ def index_daily():
 @time_cost(logger.info)
 def moneyflow_hsgt():
     logger.info("开始获取 moneyflow_hsgt 数据...")
-    cols = ["date", "link_id", "link_name", "currency_id", "currency_name", "net_buy", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance"]
+    cols = ["date", "link_id", "link_name", "currency_id", "currency_name", "net_buy", "net_flow", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance"]
     conflict_cols = ["date", "link_id"]
-    update_cols = ["link_name", "currency_id", "currency_name", "net_buy", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance"]
+    update_cols = ["link_name", "currency_id", "currency_name", "net_buy", "net_flow", "buy_amount", "buy_volume", "sell_amount", "sell_volume", "sum_amount", "sum_volume", "quota", "quota_balance", "quota_daily", "quota_daily_balance"]
 
     # 一次获取 2000 条，太多返回结果会乱
     batch_size = 2000
@@ -157,6 +157,7 @@ def moneyflow_hsgt():
         df.dropna(how="all", inplace=True)
         df.rename(columns={"day": "date"}, inplace=True)
         df["net_buy"] = df.apply(lambda x: x["buy_amount"] - x["sell_amount"], axis=1)
+        df["net_flow"] = df.apply(lambda x: x["quota_daily"] - x["quota_daily_balance"], axis=1)
         df = df[cols]
 
         date_list = sorted(df["date"].tolist())

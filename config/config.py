@@ -5,6 +5,9 @@
 @file: config.py
 @time: 2021/1/22 19:18
 """
+from os.path import dirname
+
+PROJECT_ROOT = dirname(dirname(__file__))
 
 TS_TOKEN = 'e6e6c3b909684abed9685243a38aa48d76e4f3a223f7e67c63243558'
 
