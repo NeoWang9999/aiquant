@@ -7,10 +7,10 @@
 @desc: 数据详情参考 https://www.joinquant.com/help/api/help#JQData
 """
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import jqdatasdk as jqd
-from jqdatasdk import finance, query
+from jqdatasdk import finance
 from sqlalchemy import desc
 
 from config.config import JQ_USER, JQ_PASSWD
@@ -22,9 +22,31 @@ from db_operate.utils.data_tools import SQLEncoder
 from db_operate.utils.time import time_cost
 
 # 初始化全局变量
-TODAY = datetime.now().strftime("%Y-%m-%d")
+DATE_FMT = "%Y-%m-%d"
+TODAY = datetime.now().strftime(DATE_FMT)
 ZERO_DATE = "1900-01-01"
 jqd.auth(JQ_USER, JQ_PASSWD)
+
+
+@time_cost(logger.info)
+def all_trade_days():
+    logger.info("开始获取 all_trade_days 数据...")
+    cols = ["trade_date", "pre_trade_date", "next_trade_date"]
+    conflict_cols = ['trade_date']
+    update_cols = ["pre_trade_date", "next_trade_date"]
+
+    a = [d.strftime(DATE_FMT) for d in jqd.get_all_trade_days()]
+    trade_date = a[1:-1]
+    pre_trade_date = a[:-2]
+    next_trade_date = a[2:]
+
+    lines = [(td, ptd, ntd) for td, ptd, ntd in zip(trade_date, pre_trade_date, next_trade_date)]
+
+    logger.info("开始更新数据库...")
+    pg_insert_on_conflict_batch(table=JQNameSpace.full_table_name("all_trade_days"),
+                                cols=cols, lines=lines, conflict_cols=conflict_cols, update_cols=update_cols)
+
+    logger.info("all_trade_days 完成更新，获取数据：{}".format(len(lines)))
 
 
 @time_cost(logger.info)
@@ -199,7 +221,8 @@ def moneyflow_hsgt():
 
 
 if __name__ == '__main__':
+    all_trade_days()
     # securities()
     # index_stocks()
     # index_daily()
-    moneyflow_hsgt()
+    # moneyflow_hsgt()

@@ -144,6 +144,24 @@ class JQTableCreateSQL:
     CREATE SCHEMA {schema_name};
     """.format(schema_name=JQNameSpace.schema)
 
+
+    all_trade_days = """
+        CREATE TABLE {schema_name}.{table_name} (
+            trade_date varchar(128),
+            pre_trade_date varchar(128),
+            next_trade_date varchar(128),
+            created_at timestamp not null default now(),
+            update_at timestamp not null default now(),
+            deleted_at timestamp default null ,
+        PRIMARY KEY (trade_date)
+        );
+        comment on TABLE {schema_name}.{table_name} is '所有交易日';
+        comment on column {schema_name}.{table_name}.trade_date is '交易日';
+        comment on column {schema_name}.{table_name}.pre_trade_date is '前一个交易日';
+        comment on column {schema_name}.{table_name}.next_trade_date is '后一个交易日';
+    """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.all_trade_days)
+
+
     securities = """
         CREATE TABLE {schema_name}.{table_name} (
             code varchar(128),
@@ -180,6 +198,7 @@ class JQTableCreateSQL:
         comment on column {schema_name}.{table_name}.type is ' 类型 : stock(股票)，index(指数)，etf(ETF基金)，fja（分级A），fjb（分级B），fjm（分级母基金），mmf（场内交易的货币基金）, open_fund（开放式基金）, bond_fund（债券基金）, stock_fund（股票型基金） , QDII_fund（QDII 基金）, money_market_fund（场外交易的货币基金）, mixture_fund（混合型基金）, options(期权)';
     """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.securities)
 
+
     index_stocks = """
         CREATE TABLE {schema_name}.{table_name} (
             code varchar(128),
@@ -203,6 +222,7 @@ class JQTableCreateSQL:
         comment on column {schema_name}.{table_name}.end_date is ' 退市日期，如果没有退市则为2200-01-01';
         comment on column {schema_name}.{table_name}.stocks is '成分股列表及成分股详情';
     """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.index_stocks)
+
 
     index_daily = """
         CREATE TABLE {schema_name}.{table_name} (
@@ -305,6 +325,17 @@ class JQTableCreateSQL:
 
 
 class JQQuerySQL:
+    """
+    {table_name}__{[w-where__column, i-input__column, r-return__column]}
+    """
+    all_trade_days = """
+        SELECT 
+            *
+        FROM
+            {table_name}
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("all_trade_days"))
+
     securities__w_type = """
         SELECT 
             *
@@ -314,7 +345,6 @@ class JQQuerySQL:
             type = 'index'
         ;
     """.format(table_name=JQNameSpace.full_table_name("securities"))
-
 
     index_daily__i_code = """
         SELECT 
@@ -336,6 +366,15 @@ class JQQuerySQL:
         ;
     """.format(table_name=JQNameSpace.full_table_name("index_daily"))
 
+    index_daily__i_code__r_date__open__close = """
+        SELECT 
+            date, open, close
+        FROM
+            {table_name}
+        where
+            code = '{{code}}'
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("index_daily"))
 
     moneyflow_hsgt__i_link_id = """
         SELECT 
@@ -346,7 +385,6 @@ class JQQuerySQL:
             link_id = '{{link_id}}'
         ;
     """.format(table_name=JQNameSpace.full_table_name("moneyflow_hsgt"))
-
 
     moneyflow_hsgt__i_link_id__r_date__net_buy__net_flow = """
         SELECT 

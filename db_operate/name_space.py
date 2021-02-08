@@ -8,6 +8,7 @@
 
 class JQNameSpace:
     schema = "jq_data"
+    all_trade_days = "all_trade_days"
     securities = "securities"
     index_stocks = "index_stocks"
     index_daily = "index_daily"
