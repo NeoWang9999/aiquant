@@ -8,6 +8,13 @@
 from datetime import datetime, timedelta
 
 import numpy as np
+import pandas as pd
+
+from db_operate.db_sqls.pg_sqls import JQQuerySQL
+from db_operate.db_sqls.utils import pg_execute
+
+trade_days_df = pd.DataFrame(pg_execute(JQQuerySQL.all_trade_days, returning=True))
+trade_days_df.sort_values(by="trade_date", inplace=True)
 
 
 def first_true(iterable, default=False, pred=None):
@@ -60,22 +67,14 @@ def trade_date_calc(date: [str, datetime], add_days: int, fmt: str = "%Y-%m-%d")
         d = date.strftime(fmt)
     else:
         raise TypeError("Unsupport type for date: {}".format(type(date)))
-
-    from db_operate.db_sqls.pg_sqls import JQQuerySQL
-    from db_operate.db_sqls.utils import pg_execute
-    import pandas as pd
-
-    s_ret = pg_execute(JQQuerySQL.all_trade_days, returning=True)
-    df = pd.DataFrame(s_ret)
-    df.sort_values(by="trade_date", inplace=True)
-    d_row = df.loc[df["trade_date"] == d]
+    d_row = trade_days_df.loc[trade_days_df["trade_date"] == d]
     if d_row.empty:
         raise ValueError("{} is not a known trade date!".format(d))
     tar_idx = d_row.index[0] + add_days
-    if tar_idx < df.index.min() or tar_idx > df.index.max():
+    if tar_idx < trade_days_df.index.min() or tar_idx > trade_days_df.index.max():
         raise ValueError("{} target trade date is unknown!")
 
-    tar_row = df.iloc[tar_idx]
+    tar_row = trade_days_df.iloc[tar_idx]
     tar_d = tar_row["trade_date"]
 
     return tar_d

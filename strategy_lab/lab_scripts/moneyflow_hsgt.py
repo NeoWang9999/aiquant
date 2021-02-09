@@ -140,10 +140,13 @@ def get_date_mean_std(link_id: str, column: str, since: datetime):
         since: 2020-01-01
 
     Returns:
-        date_l: ['2020-01-01', ...]
-        val_l: [12, ...]
-        mean_l: [10, ...]
-        std_l: [0.2, ...]
+        DataFrame(
+            {
+            date: ['2020-01-01', ...],
+            val: [12, ...],
+            mean: [10, ...],
+            std: [0.2, ...]}
+        )
 
     """
     moneyflow_hsgt__r = pg_execute(
@@ -180,16 +183,17 @@ def get_date_mean_std(link_id: str, column: str, since: datetime):
 
         mf_end_idx -= 1
     date_l, val_l, mean_l, std_l = date_l[::-1], val_l[::-1], mean_l[::-1], std_l[::-1]  # 按时间顺序排列
-    return date_l, val_l, mean_l, std_l
+    return pd.DataFrame({"date": date_l, "val": val_l, "mean": mean_l, "std": std_l})
 
 
-def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: float = 1000000.00):
+def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: list, capital: float = 1000000.00):
     """
     根据买入和卖出信号进行买卖策略，获得持有期状态，例如持有期收益。
     Args:
         code: 操作标的
-        buy_sig_date: 触发买入信号日期列表
-        sell_sig_date: 触发卖出入信号日期列表
+        code_column: 操作时机 close / open
+        buy_date_l: 触发买入信号日期列表
+        sell_date_l: 触发卖出入信号日期列表
         capital: 初始资金
 
     Returns:
@@ -198,12 +202,8 @@ def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: fl
     """
     from strategy_lab.utils import first_true
 
-    assert len(buy_sig_date) > 0 and len(sell_sig_date) > 0, "至少有一次买卖信号"
+    assert len(buy_date_l) > 0 and len(sell_date_l) > 0, "至少有一次买卖信号"
     init_capital = capital
-
-    # 在收到信号的第二天开盘进行操作
-    buy_sig_date = [trade_date_calc(d, add_days=1) for d in buy_sig_date]
-    sell_sig_date = [trade_date_calc(d, add_days=1) for d in sell_sig_date]
 
     daily__r = pg_execute(
         command=JQQuerySQL.index_daily__i_code__r_date__open__close.format(code=code), returning=True)
@@ -212,19 +212,21 @@ def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: fl
     daily_df.sort_index(inplace=True)
     daily_df = daily_df.astype(float)
 
+    logger.info("初始本金: {}, 策略执行开始...".format(init_capital))
+
     # 获取持有时间区间
     hold_period = []
-    buy_sig_date.sort()
-    sell_sig_date.sort()
-    buy_date, sell_date = buy_sig_date[0], None
+    buy_date_l.sort()
+    sell_date_l.sort()
+    buy_date, sell_date = buy_date_l[0], None
     while True:
-        sell_date = first_true(sell_sig_date, pred=lambda x: x > buy_date)
+        sell_date = first_true(sell_date_l, pred=lambda x: x > buy_date)
         if not sell_date:
             break
 
         hold_period.append((buy_date, sell_date))
 
-        buy_date = first_true(buy_sig_date, pred=lambda x: x > sell_date)
+        buy_date = first_true(buy_date_l, pred=lambda x: x > sell_date)
         if not buy_date:
             break
 
@@ -242,14 +244,14 @@ def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: fl
 
         # 交易策略
         # 默认开盘买入和卖出，每次操作都是全仓
-        buy_price, sell_price = buy_row["open"], sell_row["open"]
+        buy_price, sell_price = buy_row[code_column], sell_row[code_column]
         shares = capital / buy_price
         holdings = buy_price * shares
         profit = sell_price * shares - holdings
         profit_rate = profit / holdings
         day_profit = [r["close"] * shares - holdings for _, r in hold_days.iterrows()]
         day_profit_rate = [p / holdings for p in day_profit]
-        max_retracement_idx, max_retracement_val = argvalmin([min(_, 0)for _ in day_profit_rate])  # 获取最大回撤当天的索引
+        max_retracement_idx, max_retracement_val = argvalmin([min(_, 0) for _ in day_profit_rate])  # 获取最大回撤当天的索引
         if max_retracement_val < 0:
             # 有回撤
             max_retracement = {
@@ -259,7 +261,6 @@ def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: fl
         else:
             # 无回撤
             max_retracement = {}
-
 
         # 更新本金
         capital_before = capital
@@ -285,7 +286,8 @@ def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: fl
     end_state = period_states[-1]
     total_profit = sum([s["profit"] for s in period_states])
     total_profit_rate = end_state["capital_after"] / init_capital
-    total_max_retracement_p_idx, total_max_retracement_p_val = argvalmin([s["max_retracement"].get("value", 0) for s in period_states])
+    total_max_retracement_p_idx, total_max_retracement_p_val = argvalmin(
+        [s["max_retracement"].get("value", 0) for s in period_states])
     if total_max_retracement_p_val < 0:
         # 有回撤
         total_max_retracement = period_states[total_max_retracement_p_idx]["max_retracement"]
@@ -307,23 +309,24 @@ def run_strategy(code: str, buy_sig_date: list, sell_sig_date: list, capital: fl
 def report(states_info):
     period_states = states_info["period_states"]
     for s in period_states:
-        logger.info("{buy_date} 以 [{buy_price}] 买入，{sell_date} 以 [{sell_price}] 卖出。收益：[{profit:.2f}], 收益率：[{profit_rate:.2%}]".format(
-            buy_date=s["buy_date"],
-            buy_price=s["buy_price"],
-            sell_date=s["sell_date"],
-            sell_price=s["sell_price"],
-            profit=s["profit"],
-            profit_rate=s["profit_rate"]
-        ))
+        logger.info(
+            "{buy_date} 以 [{buy_price}] 买入，{sell_date} 以 [{sell_price}] 卖出。收益：[{profit:.2f}], 收益率：[{profit_rate:.2%}]".format(
+                buy_date=s["buy_date"],
+                buy_price=s["buy_price"],
+                sell_date=s["sell_date"],
+                sell_price=s["sell_price"],
+                profit=s["profit"],
+                profit_rate=s["profit_rate"]
+            ))
     start_date, end_date = period_states[0]["buy_date"], period_states[-1]["sell_date"]
 
     total_stat_log = "{buy_date} 至 {sell_date} 总收益：{total_profit:.2f}，总收益率：{total_profit_rate:.2%}。".format(
-            buy_date=start_date,
-            sell_date=end_date,
-            total_profit=states_info["total_profit"],
-            total_profit_rate=states_info["total_profit_rate"],
+        buy_date=start_date,
+        sell_date=end_date,
+        total_profit=states_info["total_profit"],
+        total_profit_rate=states_info["total_profit_rate"],
 
-        )
+    )
     total_max_retracement = states_info["total_max_retracement"]
     if total_max_retracement:
         # 有回撤
@@ -341,14 +344,22 @@ def report(states_info):
 
 
 def plot_boll():
-    title = "北向资金净买入布林带"
+    title = "北向资金净流入布林带策略"
     link_id = "310005"
-    mf_column = "net_buy"
+    mf_column = "net_flow"
     since = datetime(2018, 1, 1)
-    x_label = "日期"
-    y_label = "亿"
     boll_factor = 1.5
+
+    x_label = "日期"
+    boll_y_label = "净流入（亿元）"
+    daily_y_label = "净值（元）"
+
+    good_color = "red"
+    bad_color = "green"
+
     code = "000300.XSHG"
+    code_column = "open"  # 操作时机 close / open
+
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -359,16 +370,23 @@ def plot_boll():
     fig_w_inch, fig_h_inch = 128, 8  # 画布大小 (英寸)
     date_show_margin = 2  # 坐标轴日期间隔天
 
-    date_l, val_l, mean_l, std_l = get_date_mean_std(link_id=link_id, column=mf_column, since=since)
-    boll_top = [m + s * boll_factor for m, s in zip(mean_l, std_l)]
-    boll_bottom = [m - s * boll_factor for m, s in zip(mean_l, std_l)]
-    buy_pt = [(d, v) for d, v, b in zip(date_l, val_l, boll_top) if v >= b]
-    buy_pt_x, buy_pt_y = [p[0] for p in buy_pt], [p[1] for p in buy_pt]
-    sell_pt = [(d, v) for d, v, b in zip(date_l, val_l, boll_bottom) if v <= b]
-    sell_pt_x, sell_pt_y = [p[0] for p in sell_pt], [p[1] for p in sell_pt]
+    boll_df = get_date_mean_std(link_id=link_id, column=mf_column, since=since)
+    boll_df["next_trade_date"] = boll_df["date"].shift(-1)
+    boll_df.iloc[-1]["next_trade_date"] = trade_date_calc(boll_df.iloc[-1]["date"], add_days=1)  # fill last date
+    boll_df["boll_top"] = boll_df["mean"] + boll_df["std"] * boll_factor
+    boll_df["boll_bottom"] = boll_df["mean"] - boll_df["std"] * boll_factor
+    boll_buy_sig_df = boll_df.loc[boll_df["val"] >= boll_df["boll_top"]]
+    boll_sell_sig_df = boll_df.loc[boll_df["val"] <= boll_df["boll_bottom"]]
+
+    # 在收到信号的第二天开盘进行操作
+    boll_buy_df = boll_df.set_index("date").loc[boll_buy_sig_df["next_trade_date"].to_list()].reset_index().rename(
+        {"index": "date"})
+    boll_sell_df = boll_df.set_index("date").loc[boll_sell_sig_df["next_trade_date"].to_list()].reset_index().rename(
+        {"index": "date"})
 
     # 执行策略
-    run_output = run_strategy(code=code, buy_sig_date=buy_pt_x, sell_sig_date=sell_pt_x)
+    run_output = run_strategy(code=code, code_column=code_column, buy_date_l=boll_buy_df["date"].to_list(),
+                              sell_date_l=boll_sell_df["date"].to_list())
     # 输出策略状态和结果
     report(run_output)
 
@@ -379,41 +397,67 @@ def plot_boll():
     ax11, ax21 = axs[0], axs[1]
 
     # 布林带图
-    ax11.plot(date_l, val_l, label="北向资金净买入", color="orange")
-    ax11.plot(date_l, mean_l, label="北向资金净买入前252交易日均值", alpha=0.6)
-    ax11.plot(date_l, boll_top, label="北向资金净买入前252交易日均值 + {} 标准差".format(boll_factor), c="gray", linestyle='-', alpha=0.8)
-    ax11.plot(date_l, boll_bottom, label="北向资金净买入前252交易日均值 - {} 标准差".format(boll_factor), c="gray", linestyle='-', alpha=0.8)
-    ax11.scatter(buy_pt_x, buy_pt_y, marker="o", s=100, c="red")
-    ax11.scatter(sell_pt_x, sell_pt_y, marker="o", s=100, c="green")
+    ax11.plot(boll_df["date"], boll_df["val"], label="北向资金净流入", color="orange")
+    ax11.plot(boll_df["date"], boll_df["mean"], label="北向资金净流入前252交易日均值", alpha=0.6)
+    ax11.plot(boll_df["date"], boll_df["boll_top"], label="北向资金净流入前252交易日均值 + {} 标准差".format(boll_factor), c="gray",
+              linestyle='-', alpha=0.8)
+    ax11.plot(boll_df["date"], boll_df["boll_bottom"], label="北向资金净流入前252交易日均值 - {} 标准差".format(boll_factor), c="gray",
+              linestyle='-', alpha=0.8)
+    ax11.scatter(boll_buy_sig_df["date"], boll_buy_sig_df["val"], marker="o", s=100, c=good_color, label="买入信号")
+    ax11.scatter(boll_sell_sig_df["date"], boll_sell_sig_df["val"], marker="o", s=100, c=bad_color, label="卖出信号")
+    ax11.scatter(boll_buy_df["date"], boll_buy_df["val"], marker="x", s=100, c=good_color, label="实际买入点")
+    ax11.scatter(boll_sell_df["date"], boll_sell_df["val"], marker="x", s=100, c=bad_color, label="实际卖出点")
 
     for state in run_output["period_states"]:
         fx = [state["buy_date"], state["sell_date"]]
-        color = "red" if state["profit_rate"] > 0 else "green"
+        color = good_color if state["profit_rate"] > 0 else bad_color
         ax11.axvline(fx[0], color=color)
         ax11.axvline(fx[1], color=color)
         ax11.fill_between(fx, 0, 1, color=color, alpha=0.2, transform=ax11.get_xaxis_transform())
-    ax11.set_ylabel(y_label)
+    ax11.set_ylabel(boll_y_label)
     ax11.grid(True)
     ax11.xaxis.set_major_locator(ticker.MultipleLocator(base=date_show_margin))
     ax11.legend(loc='lower right')
 
     # 指数基金价格图
     daily_df = run_output["daily_df"]
-    daily_y = daily_df.reindex(date_l).fillna(method="ffill")["close"].tolist()
-    buy_sig_y = daily_df.reindex(buy_pt_x).fillna(method="ffill")["close"].tolist()
-    sell_sig_y = daily_df.reindex(sell_pt_x).dropna()["close"].tolist()
+    daily_df = daily_df.reindex(boll_df["date"]).fillna(method="ffill")
+    daily_buy_sig_df = daily_df.reindex(boll_buy_sig_df["date"]).fillna(method="ffill")
+    daily_sell_sig_df = daily_df.reindex(boll_sell_sig_df["date"]).fillna(method="ffill")
+    daily_buy_df = daily_df.reindex(boll_buy_df["date"]).fillna(method="ffill")
+    daily_sell_df = daily_df.reindex(boll_sell_df["date"]).fillna(method="ffill")
 
-    ax21.plot(date_l, daily_y, label="{}".format(index_code2name[code]), color="black")
-    ax21.scatter(buy_pt_x, buy_sig_y, marker="o", s=100, c="red")
-    ax21.scatter(sell_pt_x, sell_sig_y, marker="o", s=100, c="green")
+    ax21.plot(daily_df.index, daily_df[code_column], label="{}".format(index_code2name[code]), color="black")
+    ax21.scatter(daily_buy_sig_df.index, daily_buy_sig_df[code_column], marker="o", s=100, c=good_color, label="买入信号")
+    ax21.scatter(daily_sell_sig_df.index, daily_sell_sig_df[code_column], marker="o", s=100, c=bad_color, label="卖出信号")
+    ax21.scatter(daily_buy_df.index, daily_buy_df[code_column], marker="x", s=100, c=good_color, label="实际买入点")
+    ax21.scatter(daily_sell_df.index, daily_sell_df[code_column], marker="x", s=100, c=bad_color, label="实际卖出点")
+
     for state in run_output["period_states"]:
         fx = [state["buy_date"], state["sell_date"]]
-        color = "red" if state["profit_rate"] > 0 else "green"
+        fy = [state["buy_price"], state["sell_price"]]
+        color = good_color if state["profit_rate"] > 0 else bad_color
         ax21.axvline(fx[0], color=color)
         ax21.axvline(fx[1], color=color)
         ax21.fill_between(fx, 0, 1, color=color, alpha=0.2, transform=ax21.get_xaxis_transform())
-    ax21.set_ylim(min(daily_y), max(daily_y))
-    ax21.set_ylabel("元")
+        ax21.annotate("{}".format(fy[0]),
+                      xy=(fx[0], fy[0]), xycoords='data',
+                      xytext=(0, 50), textcoords='offset points',
+                      bbox=dict(boxstyle="round", fc=good_color),
+                      arrowprops=dict(arrowstyle="->",
+                                      connectionstyle="arc3"),
+                      fontsize='large', color="white",
+                      )
+        ax21.annotate("{}".format(fy[1]),
+                      xy=(fx[1], fy[1]), xycoords='data',
+                      xytext=(0, 50), textcoords='offset points',
+                      bbox=dict(boxstyle="round", fc=bad_color),
+                      arrowprops=dict(arrowstyle="->",
+                                      connectionstyle="arc3"),
+                      fontsize='large', color="white",
+                      )
+    ax21.set_ylim(min(daily_df[code_column]), max(daily_df[code_column]))
+    ax21.set_ylabel(daily_y_label)
     ax21.grid(True)
     ax21.xaxis.set_major_locator(ticker.MultipleLocator(base=date_show_margin))
     ax21.legend(loc='lower right')
