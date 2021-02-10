@@ -13,6 +13,7 @@ class JQNameSpace:
     index_stocks = "index_stocks"
     index_daily = "index_daily"
     moneyflow_hsgt = "moneyflow_hsgt"
+    fund_daily = "fund_daily"
 
     @staticmethod
     def full_table_name(table_name):

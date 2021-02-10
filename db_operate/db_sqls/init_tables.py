@@ -19,11 +19,12 @@ def ts_init():
 
 def jq_init():
     # pg_execute(JQTableCreateSQL.schema)
+    # pg_execute(JQTableCreateSQL.all_trade_days)
     # pg_execute(JQTableCreateSQL.securities)
     # pg_execute(JQTableCreateSQL.index_stocks)
     # pg_execute(JQTableCreateSQL.index_daily)
     # pg_execute(JQTableCreateSQL.moneyflow_hsgt)
-    pg_execute(JQTableCreateSQL.all_trade_days)
+    pg_execute(JQTableCreateSQL.fund_daily)
 
 
 
