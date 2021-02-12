@@ -408,6 +408,16 @@ class JQQuerySQL:
         ;
     """.format(table_name=JQNameSpace.full_table_name("fund_daily"))
 
+    fund_daily__i_code__r_date__open__close = """
+            SELECT 
+                date, open, close
+            FROM
+                {table_name}
+            where
+                code = '{{code}}'
+            ;
+        """.format(table_name=JQNameSpace.full_table_name("fund_daily"))
+
     index_daily__i_code = """
         SELECT 
             *

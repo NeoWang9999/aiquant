@@ -1,3 +1,5 @@
+# 策略相关
+pandas_market_calendars
 
 # 数据库相关
 pandas==1.2.1

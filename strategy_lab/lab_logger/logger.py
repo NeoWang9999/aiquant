@@ -7,11 +7,10 @@
 """
 import os
 import logging
-from datetime import datetime
+
+from strategy_lab.lab_config.config import TS
 
 logger = logging.getLogger(__name__)
-
-TS = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 log_dir = "logs/"
 
