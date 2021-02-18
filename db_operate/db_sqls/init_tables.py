@@ -24,7 +24,8 @@ def jq_init():
     # pg_execute(JQTableCreateSQL.index_stocks)
     # pg_execute(JQTableCreateSQL.index_daily)
     # pg_execute(JQTableCreateSQL.moneyflow_hsgt)
-    pg_execute(JQTableCreateSQL.fund_daily)
+    # pg_execute(JQTableCreateSQL.fund_daily)
+    pg_execute(JQTableCreateSQL.stock_daily)
 
 
 

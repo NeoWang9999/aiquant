@@ -268,10 +268,58 @@ def fund_daily():
     logger.info("fund_daily 完成更新，获取数据：{}".format(total_lines_count))
 
 
+
+@time_cost(logger.info)
+def stock_daily():
+    logger.info("开始获取 stock_daily 数据...")
+    cols = ['code', 'date', 'open', 'close', 'low', 'high', 'volume', 'money', 'factor', 'high_limit', 'low_limit',
+            'avg', 'pre_close', 'paused', 'open_interest']
+    conflict_cols = ['code', 'date']
+    update_cols = ['open', 'close', 'low', 'high', 'volume', 'money', 'factor', 'high_limit', 'low_limit', 'avg',
+                   'pre_close', 'paused', 'open_interest']
+    fields = ['open', 'close', 'low', 'high', 'volume', 'money', 'factor', 'high_limit', 'low_limit', 'avg', 'pre_close', 'paused', 'open_interest']
+
+    total_lines_count = 0
+    s_return = pg_execute(command=JQQuerySQL.securities__w_type_stock, returning=True)
+    for index_item in s_return:
+        # todo: 更新模式，追加未入库的日期。（不能只追加新日期的数据，要注意检查是否有前复权，如果有则需要更新全部日期的数据）
+        # 初始化模式，如果库里有则跳过，不更新
+        id_return = pg_execute(command=JQQuerySQL.stock_daily__i_code.format(code=index_item["code"]), returning=True)
+        if id_return:
+            logger.info("[已存在] {} 的行情 ...".format(index_item["code"]))
+            continue
+
+        df = jqd.get_price(index_item["code"], start_date=ZERO_DATE, end_date=TODAY, frequency='daily', fields=fields,
+                           skip_paused=False, fq='pre')
+        df.dropna(how="all", inplace=True)
+        if df.empty:
+            logger.info("[跳过更新] 无 {} 的行情数据 ...".format(index_item["code"]))
+            continue
+        df = df.where(df.notnull(), None)
+        df.reset_index(inplace=True)
+        df.rename(columns={"index": "date"}, inplace=True)
+        df = df.astype({"paused": int, "date": str})
+        df = df.astype({"paused": bool})
+        df["code"] = index_item["code"]
+        df["type"] = index_item["type"]
+        df = df[cols]
+
+        lines = df.to_records(index=False).tolist()
+        total_lines_count += len(lines)
+
+        logger.info("[开始更新] {} 的行情，共计 {} 条 ...".format(index_item["code"], len(lines)))
+        pg_insert_on_conflict_batch(table=JQNameSpace.full_table_name("stock_daily"),
+                                    cols=cols, lines=lines, conflict_cols=conflict_cols, update_cols=update_cols)
+        logger.info("[完成更新] {} 的行情，共计 {} 条 ...".format(index_item["code"], len(lines)))
+
+    logger.info("stock_daily 完成更新，获取数据：{}".format(total_lines_count))
+
+
 if __name__ == '__main__':
     # all_trade_days()
     # securities()
     # index_stocks()
     # index_daily()
     # moneyflow_hsgt()
-    fund_daily()
+    # fund_daily()
+    stock_daily()

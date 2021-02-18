@@ -323,6 +323,7 @@ class JQTableCreateSQL:
 
     """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.moneyflow_hsgt)
 
+
     fund_daily = """
         CREATE TABLE {schema_name}.{table_name} (
             code varchar(128),
@@ -366,6 +367,47 @@ class JQTableCreateSQL:
     """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.fund_daily)
 
 
+    stock_daily = """
+        CREATE TABLE {schema_name}.{table_name} (
+            code varchar(128),
+            date varchar(128),
+            open numeric(20,4),
+            close numeric(20,4),
+            low numeric(20,4),
+            high numeric(20,4),
+            volume numeric(20,4),
+            money numeric(16, 0),
+            factor numeric(8,4),
+            high_limit numeric(20,4),
+            low_limit numeric(20,4),
+            avg numeric(20,4),
+            pre_close numeric(20,4),
+            paused boolean,
+            open_interest numeric(20,4),
+            created_at timestamp not null default now(),
+            updated_at timestamp not null default now(),
+            deleted_at timestamp default null,
+        PRIMARY KEY (code, date)
+        );
+        CREATE INDEX ix_{schema_name}_{table_name}_code__date on {schema_name}.{table_name} (code, date); 
+
+        comment on TABLE {schema_name}.{table_name} is '股票行情数据';
+        comment on column {schema_name}.{table_name}.open is '时间段开始时价格';
+        comment on column {schema_name}.{table_name}.close is '时间段结束时价格';
+        comment on column {schema_name}.{table_name}.low is '时间段中的最低价';
+        comment on column {schema_name}.{table_name}.high is '时间段中的最高价';
+        comment on column {schema_name}.{table_name}.volume is '时间段中的成交的股票数量';
+        comment on column {schema_name}.{table_name}.money is '时间段中的成交的金额';
+        comment on column {schema_name}.{table_name}.factor is '前复权因子, 我们提供的价格都是前复权后的, 但是利用这个值可以算出原始价格, 方法是价格除以factor, 比如 close/factor';
+        comment on column {schema_name}.{table_name}.high_limit is '时间段中的涨停价';
+        comment on column {schema_name}.{table_name}.low_limit is '时间段中的跌停价';
+        comment on column {schema_name}.{table_name}.avg is '这段时间的平均价。计算方法（1）天级别：股票是成交额除以成交量；期货是直接从CTP行情获取的，计算方法为成交额除以成交量再除以合约乘数；（2）分钟级别：用该分钟所有tick的现价乘以该tick的成交量加起来之后，再除以该分钟的成交量。';
+        comment on column {schema_name}.{table_name}.pre_close is '前一个单位时间结束时的价格, 按天则是前一天的收盘价（期货中pre_close是前前一天结算价，建议使用get_extras获取结算价）, 注意：在分钟频率下pre_close=open；';
+        comment on column {schema_name}.{table_name}.paused is 'bool值, 这只股票是否停牌, 停牌时open/close/low/high/pre_close依然有值,都等于停牌前的收盘价, volume=money=0';
+        comment on column {schema_name}.{table_name}.open_interest is '期货持仓量';
+    """.format(schema_name=JQNameSpace.schema, table_name=JQNameSpace.stock_daily)
+
+
 class JQQuerySQL:
     """
     {table_name}__{[w-where__column, i-input__column, r-return__column]}
@@ -395,6 +437,16 @@ class JQQuerySQL:
             {table_name}
         where
             type in ('etf')
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("securities"))
+
+    securities__w_type_stock = """
+        SELECT 
+            *
+        FROM
+            {table_name}
+        where
+            type = 'stock'
         ;
     """.format(table_name=JQNameSpace.full_table_name("securities"))
 
@@ -467,6 +519,16 @@ class JQQuerySQL:
             link_id = '{{link_id}}'
         ;
     """.format(table_name=JQNameSpace.full_table_name("moneyflow_hsgt"))
+
+    stock_daily__i_code = """
+        SELECT 
+            *
+        FROM
+            {table_name}
+        where
+            code = '{{code}}'
+        ;
+    """.format(table_name=JQNameSpace.full_table_name("stock_daily"))
 
 
 class AKTableCreateSQL:

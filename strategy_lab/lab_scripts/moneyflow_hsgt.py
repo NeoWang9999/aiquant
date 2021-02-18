@@ -126,7 +126,6 @@ def get_date_mean_std(link_id: str, column: str, since: datetime):
             mean: [10, ...],
             std: [0.2, ...]}
         )
-
     """
     moneyflow_hsgt__r = pg_execute(
         command=JQQuerySQL.moneyflow_hsgt__i_link_id__r_date__net_buy__net_flow.format(link_id=link_id), returning=True)
@@ -213,7 +212,7 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
     for buy_date, sell_date in hold_period:
         buy_row = daily_df.loc[buy_date]
         sell_row = daily_df.loc[sell_date]
-        hold_days = daily_df.loc[buy_date: sell_date]
+        hold_daily_df = daily_df.loc[buy_date: sell_date]
 
         if buy_row.empty or sell_row.empty:
             miss_date = buy_date if buy_row.empty else sell_date
@@ -227,14 +226,18 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
         holdings = buy_price * shares
         profit = sell_price * shares - holdings
         profit_rate = profit / holdings
-        day_profit = [r["close"] * shares - holdings for _, r in hold_days.iterrows()]
-        day_profit_rate = [p / holdings for p in day_profit]
-        max_retracement_idx, max_retracement_val = argvalmin([min(_, 0) for _ in day_profit_rate])  # 获取最大回撤当天的索引
+
+        # 初始资金的收益和收益率
+        daily_profit = [r["close"] * shares - init_capital for _, r in hold_daily_df.iterrows()]
+        daily_profit_rate = [p / init_capital for p in daily_profit]
+
+        # 回撤
+        max_retracement_idx, max_retracement_val = argvalmin([min(_, 0) for _ in daily_profit_rate])  # 获取最大回撤当天的索引
         if max_retracement_val < 0:
             # 有回撤
             max_retracement = {
-                "date": hold_days.iloc[max_retracement_idx].name,
-                "value": day_profit_rate[max_retracement_idx],
+                "date": hold_daily_df.iloc[max_retracement_idx].name,
+                "value": daily_profit_rate[max_retracement_idx],
             }
         else:
             # 无回撤
@@ -244,18 +247,19 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
         capital_before = capital
         capital *= (1 + profit_rate)
 
+        hold_daily_df.loc[:, "profit"] = daily_profit
+        hold_daily_df.loc[:, "profit_rate"] = daily_profit_rate
         s = {
+            "hold_daily_df": hold_daily_df,
             "buy_date": buy_date,
             "sell_date": sell_date,
             "buy_price": buy_price,
             "sell_price": sell_price,
             "shares": shares,
-            "profit": profit,
-            "profit_rate": profit_rate,
+            "profit": profit,  # 单看这一阶段的收益
+            "profit_rate": profit_rate,  # 单看这一阶段的收益率
             "capital_before": capital_before,
             "capital_after": capital,
-            "day_profit": day_profit,
-            "day_profit_rate": day_profit_rate,
             "max_retracement": max_retracement,
         }
         period_states.append(s)
@@ -273,6 +277,9 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
         # 无回撤
         total_max_retracement = {}
 
+    hold_daily_df_concat = pd.concat(
+        [period_states[i]['hold_daily_df'].drop(columns=["open", "close"]) for i in range(len(period_states))])
+    daily_df = daily_df.join(hold_daily_df_concat, how="left").fillna(method="ffill")
     start_date, end_date = period_states[0]["buy_date"], end_state["sell_date"]
     yearly_profit_rate_ = yearly_profit_rate(start_date=datetime.strptime(start_date, DATE_FMT),
                                              end_date=datetime.strptime(end_date, DATE_FMT),
@@ -333,15 +340,16 @@ def report(model_out):
 
 
 def plot_boll():
-    title = "北向资金净买入布林带策略"
     link_id = "310005"
     mf_column = "net_buy"
     since = datetime(2015, 1, 1)
     boll_factor = 1.5
 
+    title = "北向资金净买入布林带策略（{} 倍标准差）".format(boll_factor)
     x_label = "日期"
     boll_y_label = "净买入（亿元）"
-    daily_y_label = "净值（元）"
+    daily_ly_label = "净值（元）"
+    daily_ry_label = "收益率"
 
     good_color = "red"
     bad_color = "green"
@@ -361,7 +369,7 @@ def plot_boll():
 
     boll_df = get_date_mean_std(link_id=link_id, column=mf_column, since=since)
     boll_df["next_trade_date"] = boll_df["date"].shift(-1)
-    boll_df.iloc[-1]["next_trade_date"] = trade_date_calc(boll_df.iloc[-1]["date"], add_days=1)  # fill last date
+    boll_df.loc[boll_df.index.max(), "next_trade_date"] = trade_date_calc(boll_df.loc[boll_df.index.max(), "date"], add_days=1)  # fill last date
     boll_df["boll_top"] = boll_df["mean"] + boll_df["std"] * boll_factor
     boll_df["boll_bottom"] = boll_df["mean"] - boll_df["std"] * boll_factor
     boll_buy_sig_df = boll_df.loc[boll_df["val"] >= boll_df["boll_top"]]
@@ -384,13 +392,14 @@ def plot_boll():
     fig.set_size_inches(fig_w_inch, fig_h_inch)
 
     ax11, ax21 = axs[0], axs[1]
+    ax21_ry = ax21.twinx()  # 收益率曲线
 
     # 布林带图
     ax11.plot(boll_df["date"], boll_df["val"], label="北向资金净买入", color="orange")
     ax11.plot(boll_df["date"], boll_df["mean"], label="北向资金净买入前252交易日均值", alpha=0.6)
-    ax11.plot(boll_df["date"], boll_df["boll_top"], label="北向资金净买入前252交易日均值 + {} 标准差".format(boll_factor), c="gray",
+    ax11.plot(boll_df["date"], boll_df["boll_top"], label="北向资金净买入前252交易日均值 + {} 倍标准差".format(boll_factor), c="gray",
               linestyle='-', alpha=0.8)
-    ax11.plot(boll_df["date"], boll_df["boll_bottom"], label="北向资金净买入前252交易日均值 - {} 标准差".format(boll_factor), c="gray",
+    ax11.plot(boll_df["date"], boll_df["boll_bottom"], label="北向资金净买入前252交易日均值 - {} 倍标准差".format(boll_factor), c="gray",
               linestyle='-', alpha=0.8)
     ax11.scatter(boll_buy_sig_df["date"], boll_buy_sig_df["val"], marker="o", s=100, c=good_color, label="买入信号")
     ax11.scatter(boll_sell_sig_df["date"], boll_sell_sig_df["val"], marker="o", s=100, c=bad_color, label="卖出信号")
@@ -416,7 +425,8 @@ def plot_boll():
     daily_buy_df = daily_df.reindex(boll_buy_df["date"]).fillna(method="ffill")
     daily_sell_df = daily_df.reindex(boll_sell_df["date"]).fillna(method="ffill")
 
-    ax21.plot(daily_df.index, daily_df[code_column], label="{}".format(fund_code2name[code]), color="black")
+    ax21.plot(daily_df.index, daily_df[code_column], label="{}".format(fund_code2name[code]), color="blue")
+    ax21_ry.plot(daily_df.index, daily_df["profit_rate"], label="策略收益率", color="purple")  # 收益率曲线
     ax21.scatter(daily_buy_sig_df.index, daily_buy_sig_df[code_column], marker="o", s=100, c=good_color, label="买入信号")
     ax21.scatter(daily_sell_sig_df.index, daily_sell_sig_df[code_column], marker="o", s=100, c=bad_color, label="卖出信号")
     ax21.scatter(daily_buy_df.index, daily_buy_df[code_column], marker="x", s=100, c=good_color, label="实际买入点")
@@ -433,20 +443,19 @@ def plot_boll():
                       xy=(fx[0], fy[0]), xycoords='data',
                       xytext=(0, 50), textcoords='offset points',
                       bbox=dict(boxstyle="round", fc=good_color),
-                      arrowprops=dict(arrowstyle="->",
-                                      connectionstyle="arc3"),
+                      arrowprops=dict(arrowstyle="->", connectionstyle="arc3"),
                       fontsize='large', color="white",
                       )
         ax21.annotate("{}".format(fy[1]),
                       xy=(fx[1], fy[1]), xycoords='data',
                       xytext=(0, 50), textcoords='offset points',
                       bbox=dict(boxstyle="round", fc=bad_color),
-                      arrowprops=dict(arrowstyle="->",
-                                      connectionstyle="arc3"),
+                      arrowprops=dict(arrowstyle="->", connectionstyle="arc3"),
                       fontsize='large', color="white",
                       )
     ax21.set_ylim(min(daily_df[code_column]), max(daily_df[code_column]))
-    ax21.set_ylabel(daily_y_label)
+    ax21.set_ylabel(daily_ly_label)
+    ax21_ry.set_ylabel(daily_ry_label)
     ax21.grid(True)
     ax21.xaxis.set_major_locator(ticker.MultipleLocator(base=date_show_margin))
     ax21.legend(loc='lower right')
@@ -459,5 +468,5 @@ def plot_boll():
 
 
 if __name__ == '__main__':
-    # plot_boll()
-    plot_corr()
+    plot_boll()
+    # plot_corr()
