@@ -39,7 +39,7 @@ def securities():
     df = df.where(df.notnull(), None)
     df.reset_index(inplace=True)
     df.rename(columns={"index": "code"}, inplace=True)
-    # df = df.astype({"start_date": str, "end_date": str})
+    # daily_df = daily_df.astype({"start_date": str, "end_date": str})
     lines = df.to_dict(orient="records")
     print("获取数据：", len(df))
 

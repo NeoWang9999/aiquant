@@ -9,10 +9,11 @@ from datetime import datetime, timedelta
 from typing import Union
 
 import numpy as np
+import pandas as pd
 import pandas_market_calendars as mcal
+from pandas import DataFrame
 
-from strategy_lab.lab_config.config import ZERO_DATE, LAST_DATE
-
+from strategy_lab.lab_config.config import ZERO_DATE, LAST_DATE, DATE_FMT
 
 xshg = mcal.get_calendar('XSHG')  # XSHG = 上交所
 trade_days_df = xshg.schedule(ZERO_DATE, LAST_DATE, tz=xshg.tz.zone)
@@ -153,6 +154,26 @@ def argvalmax(a):
     return idx, a[idx]
 
 
+def get_max_retracement(daily_df) -> dict:
+    """
+    Args:
+        daily_df: daily DataFrame, 包括 open, close, profit, profit_rate 列
+
+    Returns:
+
+    """
+    daily_df = daily_df.copy().dropna(how="any")
+
+    max_retracement_val, max_retracement_date = None, None
+    # 回撤
+    idx, val = argvalmin([min(_, 0) for _ in daily_df["profit_rate"]])  # 获取最大回撤当天的索引
+    if val < 0:
+        # 有回撤
+        max_retracement_row = daily_df.iloc[idx]
+        max_retracement_val, max_retracement_date = max_retracement_row.profit_rate, max_retracement_row.name
+
+    return max_retracement_val, max_retracement_date
+
 
 def yearly_profit_rate(start_date: Union[str, datetime], end_date: Union[str, datetime], capital_before: float, capital_after: float, D: int = 250) -> float:
     """
@@ -178,6 +199,49 @@ def yearly_profit_rate(start_date: Union[str, datetime], end_date: Union[str, da
     N = D / T
     Y = (capital_after/capital_before)**N - 1
     return Y
+
+
+def get_year_states(daily_df: DataFrame) -> list:
+    """
+    获取各个年份的指标
+    Args:
+        daily_df: daily DataFrame, 包括 open, close, profit, profit_rate, capital 列
+
+    Returns:
+
+    """
+    daily_df = daily_df.copy().dropna(how="any")
+    states = []
+    daily_df.index = pd.to_datetime(daily_df.index)
+    all_years = set(daily_df.index.year)
+    for y in all_years:
+        y_df = daily_df.loc[pd.to_datetime(daily_df.index).year == y].copy()
+        y_dates = y_df.index.date
+        start_date = y_dates.min().strftime(DATE_FMT)
+        end_date = y_dates.max().strftime(DATE_FMT)
+
+        start_cap = y_df.at[start_date, "capital"]
+        end_cap = y_df.at[end_date, "capital"]
+
+        y_profit = end_cap - start_cap
+        y_profit_rate = y_profit / start_cap
+
+        y_volatility = y_df.profit_rate.std()  # 年化波动率
+        max_retracement_val, max_retracement_date = get_max_retracement(daily_df=y_df)
+
+        s = {
+            "year": y,
+            "start_date": start_date,
+            "end_date": end_date,
+            "profit": y_profit,
+            "profit_rate": y_profit_rate,
+            "volatility": y_volatility,
+            "max_retracement_val": max_retracement_val,
+            "max_retracement_date": max_retracement_date,
+        }
+        states.append(s)
+
+    return states
 
 
 if __name__ == '__main__':

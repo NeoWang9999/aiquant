@@ -15,7 +15,8 @@ from db_operate.db_sqls.pg_sqls import JQQuerySQL
 from db_operate.db_sqls.utils import pg_execute
 from strategy_lab.lab_config.config import OUT_DIR, TS, TRADE_DAY_NUM_OF_YEAR, DATE_FMT
 from strategy_lab.lab_logger.logger import logger
-from strategy_lab.utils import argvalmin, trade_date_calc, yearly_profit_rate, first_true
+from strategy_lab.utils import argvalmin, trade_date_calc, yearly_profit_rate, first_true, get_year_states, \
+    get_max_retracement
 
 index_code2name = {
     "000001.XSHG": "上证指数",
@@ -179,7 +180,7 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
 
     """
 
-    assert len(buy_date_l) > 0 and len(sell_date_l) > 0, "至少有一次买卖信号"
+    assert len(buy_date_l) > 0 and len(sell_date_l) > 0, "至少有一次买卖信号!"
     init_capital = capital
 
     daily__r = pg_execute(
@@ -212,7 +213,7 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
     for buy_date, sell_date in hold_period:
         buy_row = daily_df.loc[buy_date]
         sell_row = daily_df.loc[sell_date]
-        hold_daily_df = daily_df.loc[buy_date: sell_date]
+        hold_daily_df = daily_df.loc[buy_date: sell_date].copy()
 
         if buy_row.empty or sell_row.empty:
             miss_date = buy_date if buy_row.empty else sell_date
@@ -227,28 +228,22 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
         profit = sell_price * shares - holdings
         profit_rate = profit / holdings
 
-        # 初始资金的收益和收益率
+        # 初始资金的收益、收益率、持有资本
         daily_profit = [r["close"] * shares - init_capital for _, r in hold_daily_df.iterrows()]
         daily_profit_rate = [p / init_capital for p in daily_profit]
+        daily_capital = [init_capital + p for p in daily_profit]
 
-        # 回撤
-        max_retracement_idx, max_retracement_val = argvalmin([min(_, 0) for _ in daily_profit_rate])  # 获取最大回撤当天的索引
-        if max_retracement_val < 0:
-            # 有回撤
-            max_retracement = {
-                "date": hold_daily_df.iloc[max_retracement_idx].name,
-                "value": daily_profit_rate[max_retracement_idx],
-            }
-        else:
-            # 无回撤
-            max_retracement = {}
+        hold_daily_df.loc[:, "profit"] = daily_profit
+        hold_daily_df.loc[:, "profit_rate"] = daily_profit_rate
+        hold_daily_df.loc[:, "capital"] = daily_capital
+
+        # 最大回撤
+        max_retracement_val, max_retracement_date = get_max_retracement(daily_df=hold_daily_df)
 
         # 更新本金
         capital_before = capital
         capital *= (1 + profit_rate)
 
-        hold_daily_df.loc[:, "profit"] = daily_profit
-        hold_daily_df.loc[:, "profit_rate"] = daily_profit_rate
         s = {
             "hold_daily_df": hold_daily_df,
             "buy_date": buy_date,
@@ -260,37 +255,39 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
             "profit_rate": profit_rate,  # 单看这一阶段的收益率
             "capital_before": capital_before,
             "capital_after": capital,
-            "max_retracement": max_retracement,
+            "max_retracement_val": max_retracement_val,
+            "max_retracement_date": max_retracement_date,
         }
         period_states.append(s)
 
-    # 全局统计
-    end_state = period_states[-1]
-    total_profit = sum([s["profit"] for s in period_states])
-    total_profit_rate = end_state["capital_after"] / init_capital - 1
-    total_max_retracement_p_idx, total_max_retracement_p_val = argvalmin(
-        [s["max_retracement"].get("value", 0) for s in period_states])
-    if total_max_retracement_p_val < 0:
-        # 有回撤
-        total_max_retracement = period_states[total_max_retracement_p_idx]["max_retracement"]
-    else:
-        # 无回撤
-        total_max_retracement = {}
-
+    # 合并持有期 df，过滤其他日期的 df
     hold_daily_df_concat = pd.concat(
         [period_states[i]['hold_daily_df'].drop(columns=["open", "close"]) for i in range(len(period_states))])
     daily_df = daily_df.join(hold_daily_df_concat, how="left").fillna(method="ffill")
+
+    # 全局统计
+    end_state = period_states[-1]
     start_date, end_date = period_states[0]["buy_date"], end_state["sell_date"]
     yearly_profit_rate_ = yearly_profit_rate(start_date=datetime.strptime(start_date, DATE_FMT),
                                              end_date=datetime.strptime(end_date, DATE_FMT),
                                              capital_before=init_capital,
                                              capital_after=end_state["capital_after"])
+
+    total_profit = sum([s["profit"] for s in period_states])
+    total_profit_rate = end_state["capital_after"] / init_capital - 1
+    total_max_retracement_val, total_max_retracement_date = get_max_retracement(daily_df=daily_df)
+
+    # 按年统计
+    year_states = get_year_states(daily_df=daily_df)
+
     stat = {
         "daily_df": daily_df,
         "period_states": period_states,
+        "year_states": year_states,
         "total_profit": total_profit,
         "total_profit_rate": total_profit_rate,
-        "total_max_retracement": total_max_retracement,
+        "total_max_retracement_val": total_max_retracement_val,
+        "total_max_retracement_date": total_max_retracement_date,
         "yearly_profit_rate": yearly_profit_rate_,
     }
 
@@ -299,9 +296,10 @@ def run_strategy(code: str, code_column: str, buy_date_l: list, sell_date_l: lis
 
 def report(model_out):
     period_states = model_out["period_states"]
+    report_txt_lines = []
+    # 操作详情
     for s in period_states:
-        logger.info(
-            "{buy_date} 以 [{buy_price}] 买入，{sell_date} 以 [{sell_price}] 卖出。收益：[{profit:.2f}], 收益率：[{profit_rate:.2%}]，本金：[{capital:.2f}]".format(
+        report_txt_lines.append("{buy_date} 以 [{buy_price}] 买入，{sell_date} 以 [{sell_price}] 卖出。收益：[{profit:.2f}], 收益率：[{profit_rate:.2%}]，本金：[{capital:.2f}]".format(
                 buy_date=s["buy_date"],
                 buy_price=s["buy_price"],
                 sell_date=s["sell_date"],
@@ -312,31 +310,35 @@ def report(model_out):
             ))
     start_date, end_date = period_states[0]["buy_date"], period_states[-1]["sell_date"]
 
-    total_stat_log = "{buy_date} 至 {sell_date} 总收益：{total_profit:.2f}，总收益率：{total_profit_rate:.2%}。".format(
+    # 各年份指标
+    year_states = model_out["year_states"]
+    for s in year_states:
+        report_txt_lines.append(
+            "{year} 年（{start_date}-{end_date}）收益：[{profit:.2f}]， 收益率：[{profit_rate:.2%}]，波动率：[{volatility:.2%}]，最大回撤：{max_retracement_val}，发生于：{max_retracement_date}。".format(
+                year=s["year"],
+                start_date=s["start_date"],
+                end_date=s["end_date"],
+                profit=s["profit"],
+                profit_rate=s["profit_rate"],
+                volatility=s["volatility"],
+                max_retracement_val=s["max_retracement_val"] or '-',
+                max_retracement_date=s["max_retracement_date"] or '-',
+            ))
+
+    # 策略总览
+    report_txt_lines.append("{buy_date} 至 {sell_date} 总收益：{total_profit:.2f}，总收益率：{total_profit_rate:.2%}。最大回撤：{total_max_retracement_val}，发生于：{total_max_retracement_date}。".format(
         buy_date=start_date,
         sell_date=end_date,
         total_profit=model_out["total_profit"],
         total_profit_rate=model_out["total_profit_rate"],
-
-    )
-    total_max_retracement = model_out["total_max_retracement"]
-    if total_max_retracement:
-        # 有回撤
-        total_stat_log += "最大回撤：{total_max_retracement_val:.2%}，发生于：{total_max_retracement_date}。".format(
-            total_max_retracement_val=total_max_retracement.get("value"),
-            total_max_retracement_date=total_max_retracement.get("date"),
-        )
-    else:
-        # 无回撤
-        total_stat_log += "持仓期间无回撤。".format(
-            total_max_retracement_val=total_max_retracement.get("value"),
-            total_max_retracement_date=total_max_retracement.get("date"),
-        )
+        total_max_retracement_val=model_out.get("total_max_retracement_val") or '-',
+        total_max_retracement_date=model_out.get("total_max_retracement_date") or '-',
+    ))
     # 年化指标
-    yearly_stat = "年化收益率：{yearly_profit_rate:.2%}，年化波动率".format(yearly_profit_rate=model_out["yearly_profit_rate"])
+    yearly_stat = "年化收益率：{yearly_profit_rate:.2%}，年化波动率：".format(yearly_profit_rate=model_out["yearly_profit_rate"])
+    report_txt_lines.append(yearly_stat)
 
-    total_stat_log += yearly_stat
-    logger.info(total_stat_log)
+    logger.info("\n".join(report_txt_lines))
 
 
 def plot_boll():
